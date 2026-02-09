@@ -69,9 +69,8 @@
     const saved = localStorage.getItem("theme");
     if (saved) {
       document.documentElement.setAttribute("data-theme", saved);
-    } else if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
-      document.documentElement.setAttribute("data-theme", "dark");
     }
+    // Default is light theme (set in HTML), no auto-dark
   }
 
   function toggleTheme() {
@@ -244,8 +243,8 @@
       <p class="paper-abstract-preview">${escapeHTML(paper.abstract || "")}</p>
       <div class="paper-tags">${tagsHTML}</div>
       <div class="paper-links">
-        <a href="${paper.pdf_url || "#"}" target="_blank" rel="noopener" class="paper-link" onclick="event.stopPropagation()">? PDF</a>
-        <a href="${paper.abs_url || "#"}" target="_blank" rel="noopener" class="paper-link" onclick="event.stopPropagation()">? arXiv</a>
+        <a href="${paper.pdf_url || "#"}" target="_blank" rel="noopener" class="paper-link" onclick="event.stopPropagation()">PDF</a>
+        <a href="${paper.abs_url || "#"}" target="_blank" rel="noopener" class="paper-link" onclick="event.stopPropagation()">arXiv</a>
       </div>
     `;
 
