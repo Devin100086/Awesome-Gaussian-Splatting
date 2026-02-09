@@ -1,6 +1,8 @@
 name: Fetch Papers & Deploy Site
 
 on:
+  push:
+    branches: [main]
   schedule:
     # Run daily at 06:13 UTC (14:13 Beijing time)
     - cron: '13 6 * * *'
