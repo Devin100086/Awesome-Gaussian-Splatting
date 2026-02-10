@@ -15,6 +15,8 @@ from urllib.parse import urljoin
 
 import feedparser
 import requests
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 try:
     from bs4 import BeautifulSoup
 except ImportError:  # Optional dependency for method figure extraction
@@ -23,7 +25,7 @@ except ImportError:  # Optional dependency for method figure extraction
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-ARXIV_API_URL = "http://export.arxiv.org/api/query"
+ARXIV_API_URL = "https://export.arxiv.org/api/query"
 # Use ti: (title) and abs: (abstract) for precise matching instead of all:
 # Avoid overly generic terms like "3d gaussian" which matches any 3D Gaussian distribution paper
 SEARCH_QUERY = (
@@ -37,7 +39,13 @@ SEARCH_QUERY = (
 )
 MAX_RESULTS_PER_PAGE = 100
 MAX_TOTAL_RESULTS = 5000          # safety cap
-REQUEST_DELAY = 3                 # seconds between API calls
+IS_GITHUB_ACTIONS = os.environ.get("GITHUB_ACTIONS") == "true"
+REQUEST_DELAY = 6 if IS_GITHUB_ACTIONS else 3  # seconds between API calls
+REQUEST_TIMEOUT = (10, 90 if IS_GITHUB_ACTIONS else 60)  # connect, read
+MAX_RETRIES = 8 if IS_GITHUB_ACTIONS else 5
+RETRY_BACKOFF = 2.0
+RETRY_STATUS = {429, 500, 502, 503, 504}
+USER_AGENT = "Awesome-Gaussian-Splatting/1.0 (+https://github.com/Devin100086/Awesome-Gaussian-Splatting)"
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 PAPERS_JSON = DATA_DIR / "papers.json"
 MIN_PUBLISHED_YEAR = 2024         # Only include papers after 2023
@@ -141,12 +149,55 @@ YEAR_RE = re.compile(r"^(\d{4})-")
 
 
 def http_get(url: str, params: dict | None = None) -> requests.Response:
-    """HTTP GET with proxy fallback (arXiv may reject some proxies)."""
-    try:
-        return requests.get(url, params=params, timeout=30,
-                            proxies={"http": None, "https": None})
-    except requests.exceptions.ConnectionError:
-        return requests.get(url, params=params, timeout=30)
+    """HTTP GET with proxy fallback and retries for rate limits/timeouts."""
+    backoff = RETRY_BACKOFF
+    last_exc: Exception | None = None
+
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            resp = requests.get(
+                url,
+                params=params,
+                timeout=REQUEST_TIMEOUT,
+                headers={"User-Agent": USER_AGENT},
+                proxies={"http": None, "https": None},
+            )
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as exc:
+            try:
+                resp = requests.get(
+                    url,
+                    params=params,
+                    timeout=REQUEST_TIMEOUT,
+                    headers={"User-Agent": USER_AGENT},
+                )
+            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as exc2:
+                last_exc = exc2
+                if attempt == MAX_RETRIES:
+                    raise
+                wait = min(backoff, 120)
+                print(f"  Request failed ({type(exc2).__name__}). Retrying in {wait:.1f}s...")
+                time.sleep(wait)
+                backoff *= 2
+                continue
+
+        if resp.status_code in RETRY_STATUS:
+            if attempt == MAX_RETRIES:
+                return resp
+            retry_after = resp.headers.get("Retry-After", "").strip()
+            if retry_after.isdigit():
+                wait = float(retry_after)
+            else:
+                wait = min(backoff, 120)
+            print(f"  HTTP {resp.status_code}. Retrying in {wait:.1f}s...")
+            time.sleep(wait)
+            backoff *= 2
+            continue
+
+        return resp
+
+    if last_exc:
+        raise last_exc
+    return resp
 
 
 def get_published_year(published: str | None) -> int | None:
