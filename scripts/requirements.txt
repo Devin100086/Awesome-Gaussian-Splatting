@@ -1,3 +1,4 @@
 requests
 feedparser
 jinja2
+beautifulsoup4

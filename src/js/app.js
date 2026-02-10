@@ -236,8 +236,14 @@
       .map((t) => `<span class="paper-tag">${t}</span>`)
       .join("");
 
+    const safeTitle = escapeHTML(paper.title);
+    const figureHTML = paper.method_fig_url
+      ? `<div class="paper-figure"><img src="${paper.method_fig_url}" alt="Method figure for ${safeTitle}" loading="lazy" /></div>`
+      : "";
+
     card.innerHTML = `
-      <h3 class="paper-title">${escapeHTML(paper.title)}</h3>
+      ${figureHTML}
+      <h3 class="paper-title">${safeTitle}</h3>
       <div class="paper-authors">${escapeHTML(authorsStr)}</div>
       <div class="paper-date">${dateStr}</div>
       <p class="paper-abstract-preview">${escapeHTML(paper.abstract || "")}</p>
@@ -280,6 +286,28 @@
     $("#modalTags").innerHTML = (paper.tags || [])
       .map((t) => `<span class="paper-tag">${t}</span>`)
       .join("");
+
+    const figureSection = $("#modalFigureSection");
+    const figureImg = $("#modalFigure");
+    const figureCaption = $("#modalFigureCaption");
+    if (paper.method_fig_url) {
+      figureSection.style.display = "block";
+      figureImg.src = paper.method_fig_url;
+      figureImg.alt = `Method figure for ${paper.title}`;
+      if (paper.method_fig_caption) {
+        figureCaption.textContent = paper.method_fig_caption;
+        figureCaption.style.display = "block";
+      } else {
+        figureCaption.textContent = "";
+        figureCaption.style.display = "none";
+      }
+    } else {
+      figureSection.style.display = "none";
+      figureImg.removeAttribute("src");
+      figureImg.alt = "";
+      figureCaption.textContent = "";
+      figureCaption.style.display = "none";
+    }
 
     $("#modalAbstract").textContent = paper.abstract || "";
     $("#modalPdf").href = paper.pdf_url || "#";
