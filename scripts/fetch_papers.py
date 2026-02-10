@@ -11,7 +11,7 @@ import re
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit, urlunsplit
 
 import feedparser
 import requests
@@ -58,9 +58,9 @@ MAX_PAPERS = 3000                 # Cap total papers; drop oldest beyond this
 # Method figure extraction (arXiv HTML)
 # ---------------------------------------------------------------------------
 FETCH_METHOD_FIGURES = True
-FIGURE_BACKFILL = True           # True to fill missing figures for all papers
+FIGURE_BACKFILL = False           # True to fill missing figures for all papers
 FIGURE_REQUEST_DELAY = 1          # seconds between figure requests
-MAX_FIGURE_FETCH = 50             # safety cap per run
+MAX_FIGURE_FETCH =50             # safety cap per run
 FORCE_REFRESH_FIGURES = False     # True to re-fetch figures even if URL exists
 CLEAR_BAD_FIGURES = True          # True to remove suspect figure URLs when refresh fails
 METHOD_FIGURE_KEYWORDS = [
@@ -309,6 +309,8 @@ def is_valid_figure_src(src: str) -> bool:
     if not src:
         return False
     src_l = src.lower()
+    if "/html/figures/" in src_l:
+        return False
     if src_l.startswith("data:"):
         return False
     for bad in FIGURE_BAD_SUBSTRINGS:
@@ -330,6 +332,8 @@ def is_suspect_figure_url(url: str) -> bool:
     if any(bad in url_l for bad in FIGURE_BAD_SUBSTRINGS):
         return True
     clean = url_l.split("?", 1)[0].split("#", 1)[0]
+    if "/html/figures/" in clean:
+        return True
     if re.search(r"/html/[^/]+\.(png|jpe?g|webp|gif|svg)$", clean):
         return True
     return False
@@ -349,7 +353,8 @@ def absolutize_media_url(base_url: str, src: str) -> str:
     """Resolve relative media URLs against the arXiv HTML base."""
     if re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", src):
         return src
-    base = base_url.rstrip("/") + "/"
+    parts = urlsplit(base_url)
+    base = urlunsplit((parts.scheme, parts.netloc, parts.path.rstrip("/") + "/", "", ""))
     return urljoin(base, src)
 
 
