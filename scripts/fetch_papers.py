@@ -99,8 +99,13 @@ TAG_RULES: dict[str, list[str]] = {
         r"urban scene", r"driving scene", r"lidar"
     ],
     "Medical": [
-        r"medical", r"surgical", r"endoscop", r"colonoscop",
-        r"ct[\s\-]", r"mri[\s\-]", r"radiology", r"anatomy"
+        r"\bmedical\b", r"\bclinical\b", r"\bsurgical\b",
+        r"\bendoscop(?:y|ic)?\b", r"\bcolonoscop(?:y|ic)?\b",
+        r"\bcomputed tomography\b",
+        r"\bct[\s\-](scan|imaging|image|volume|data|reconstruction)\b",
+        r"\bmri\b", r"\bmagnetic resonance imaging\b",
+        r"\bradiolog(?:y|ical)\b", r"\banatom(?:y|ical)\b",
+        r"\bultrasound\b"
     ],
     "Compression": [
         r"compress", r"compact", r"pruning", r"quantiz",
