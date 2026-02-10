@@ -335,7 +335,8 @@ a:hover {
 
 /* Stats */
 .stats {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -346,6 +347,16 @@ a:hover {
   border-radius: var(--radius-sm);
   text-align: center;
   border: 1px solid var(--border-color);
+}
+
+.stat-item.stat-item-today {
+  grid-column: 1 / -1;
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.stat-item.stat-item-today .stat-label {
+  color: var(--text-secondary);
 }
 
 .stat-value {
@@ -470,6 +481,7 @@ a:hover {
   padding: 20px;
   cursor: pointer;
   transition: all var(--transition);
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -479,6 +491,32 @@ a:hover {
   border-color: var(--accent);
   box-shadow: var(--shadow-md);
   transform: translateY(-2px);
+}
+
+.paper-card.is-latest {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent), var(--shadow-md);
+  background: linear-gradient(180deg, var(--accent-soft) 0%, var(--bg-card) 45%);
+}
+
+.paper-card.is-latest:hover {
+  box-shadow: 0 0 0 1px var(--accent), var(--shadow-lg);
+}
+
+.latest-badge {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-inverse);
+  background: var(--accent);
+  border-radius: 999px;
+  padding: 4px 8px;
+  box-shadow: var(--shadow-sm);
+  z-index: 2;
 }
 
 .paper-figure {

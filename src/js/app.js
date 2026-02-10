@@ -11,6 +11,7 @@
   let filteredPapers = [];
   let displayedCount = 0;
   const PAGE_SIZE = 50;
+  let latestPaperId = null;
 
   let activeSearchQuery = "";
   let activeYear = "";
@@ -34,6 +35,7 @@
   const noResults       = $("#noResults");
   const totalCountEl    = $("#totalCount");
   const filteredCountEl = $("#filteredCount");
+  const todayCountEl    = $("#todayCount");
   const lastUpdatedEl   = $("#lastUpdated");
   const themeToggle     = $("#themeToggle");
   const modal           = $("#modal");
@@ -54,6 +56,11 @@
         lastUpdatedEl.textContent = `Last updated: ${d.toLocaleDateString("en-US", {
           year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"
         })}`;
+      }
+
+      latestPaperId = findLatestPaperId(allPapers);
+      if (todayCountEl) {
+        todayCountEl.textContent = countPapersOnDate(allPapers, new Date());
       }
     }
 
@@ -236,12 +243,21 @@
       .map((t) => `<span class="paper-tag">${t}</span>`)
       .join("");
 
+    const isLatest = latestPaperId && paper.id === latestPaperId;
+    if (isLatest) {
+      card.classList.add("is-latest");
+    }
+
     const safeTitle = escapeHTML(paper.title);
+    const latestBadgeHTML = isLatest
+      ? `<div class="latest-badge">Latest</div>`
+      : "";
     const figureHTML = paper.method_fig_url
       ? `<div class="paper-figure"><img src="${paper.method_fig_url}" alt="Method figure for ${safeTitle}" loading="lazy" /></div>`
       : "";
 
     card.innerHTML = `
+      ${latestBadgeHTML}
       ${figureHTML}
       <h3 class="paper-title">${safeTitle}</h3>
       <div class="paper-authors">${escapeHTML(authorsStr)}</div>
@@ -459,6 +475,37 @@
   }
 
   // ©¤©¤ Helpers ©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤
+  function getLocalDateKey(date) {
+    return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+  }
+
+  function countPapersOnDate(papers, targetDate) {
+    const targetKey = getLocalDateKey(targetDate);
+    let count = 0;
+    papers.forEach((p) => {
+      if (!p.published) return;
+      const d = new Date(p.published);
+      if (Number.isNaN(d.getTime())) return;
+      if (getLocalDateKey(d) === targetKey) count += 1;
+    });
+    return count;
+  }
+
+  function findLatestPaperId(papers) {
+    let latestId = null;
+    let latestTime = -Infinity;
+    papers.forEach((p) => {
+      if (!p.published) return;
+      const t = Date.parse(p.published);
+      if (Number.isNaN(t)) return;
+      if (t > latestTime) {
+        latestTime = t;
+        latestId = p.id || null;
+      }
+    });
+    return latestId;
+  }
+
   function escapeHTML(str) {
     const div = document.createElement("div");
     div.textContent = str;
