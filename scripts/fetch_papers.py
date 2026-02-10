@@ -50,6 +50,7 @@ DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 PAPERS_JSON = DATA_DIR / "papers.json"
 MIN_PUBLISHED_YEAR = 2023         # Only include papers after 2023
 REASSIGN_ALL_TAGS = True          # True = overwrite existing tags on every fetch
+MAX_PAPERS = 3000                 # Cap total papers; drop oldest beyond this
 
 # ---------------------------------------------------------------------------
 # Method figure extraction (arXiv HTML)
@@ -493,6 +494,10 @@ def merge_papers(existing: list[dict], new_papers: list[dict]) -> tuple[list[dic
         key=lambda p: p.get("published", ""),
         reverse=True,
     )
+    if MAX_PAPERS and len(merged) > MAX_PAPERS:
+        removed_oldest = len(merged) - MAX_PAPERS
+        merged = merged[:MAX_PAPERS]
+        print(f"  Trimmed {removed_oldest} oldest papers to keep {MAX_PAPERS}.")
     return merged, added_ids
 
 

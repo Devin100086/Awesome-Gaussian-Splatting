@@ -493,17 +493,17 @@ a:hover {
   transform: translateY(-2px);
 }
 
-.paper-card.is-latest {
+.paper-card.is-today {
   border-color: var(--accent);
   box-shadow: 0 0 0 1px var(--accent), var(--shadow-md);
   background: linear-gradient(180deg, var(--accent-soft) 0%, var(--bg-card) 45%);
 }
 
-.paper-card.is-latest:hover {
+.paper-card.is-today:hover {
   box-shadow: 0 0 0 1px var(--accent), var(--shadow-lg);
 }
 
-.latest-badge {
+.today-badge {
   position: absolute;
   top: 12px;
   right: 12px;
