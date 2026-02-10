@@ -48,7 +48,8 @@ RETRY_STATUS = {429, 500, 502, 503, 504}
 USER_AGENT = "Awesome-Gaussian-Splatting/1.0 (+https://github.com/Devin100086/Awesome-Gaussian-Splatting)"
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 PAPERS_JSON = DATA_DIR / "papers.json"
-MIN_PUBLISHED_YEAR = 2024         # Only include papers after 2023
+MIN_PUBLISHED_YEAR = 2023         # Only include papers after 2023
+REASSIGN_ALL_TAGS = True          # True = overwrite existing tags on every fetch
 
 # ---------------------------------------------------------------------------
 # Method figure extraction (arXiv HTML)
@@ -458,9 +459,7 @@ def load_existing_papers() -> dict:
 
 
 def merge_papers(existing: list[dict], new_papers: list[dict]) -> tuple[list[dict], list[str]]:
-    """Merge new papers into existing list, deduplicating by ID.
-    Preserves manually-edited tags in existing entries.
-    """
+    """Merge new papers into existing list, deduplicating by ID."""
     existing_map = {p["id"]: p for p in existing}
     added_ids: list[str] = []
 
@@ -471,12 +470,15 @@ def merge_papers(existing: list[dict], new_papers: list[dict]) -> tuple[list[dic
             existing_map[pid] = paper
             added_ids.append(pid)
         else:
-            # Update metadata but preserve manually-edited tags
-            old_tags = existing_map[pid].get("tags", [])
             existing_map[pid].update(paper)
-            existing_map[pid]["tags"] = old_tags if old_tags else assign_tags(
-                paper["title"], paper["abstract"]
-            )
+            if REASSIGN_ALL_TAGS:
+                existing_map[pid]["tags"] = assign_tags(paper["title"], paper["abstract"])
+            else:
+                # Preserve manually-edited tags unless empty
+                old_tags = existing_map[pid].get("tags", [])
+                existing_map[pid]["tags"] = old_tags if old_tags else assign_tags(
+                    paper["title"], paper["abstract"]
+                )
 
     print(f"  Added {len(added_ids)} new papers, {len(existing_map)} total.")
 
