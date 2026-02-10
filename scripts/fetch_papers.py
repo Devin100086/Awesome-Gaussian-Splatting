@@ -40,11 +40,13 @@ SEARCH_QUERY = (
 MAX_RESULTS_PER_PAGE = 100
 MAX_TOTAL_RESULTS = 5000          # safety cap
 IS_GITHUB_ACTIONS = os.environ.get("GITHUB_ACTIONS") == "true"
-REQUEST_DELAY = 6 if IS_GITHUB_ACTIONS else 3  # seconds between API calls
+REQUEST_DELAY = 6  # seconds between API calls (arXiv rate limit safety)
 REQUEST_TIMEOUT = (10, 90 if IS_GITHUB_ACTIONS else 60)  # connect, read
 MAX_RETRIES = 8 if IS_GITHUB_ACTIONS else 5
 RETRY_BACKOFF = 2.0
 RETRY_STATUS = {429, 500, 502, 503, 504}
+MAX_429_RETRIES = 8
+RATE_LIMIT_BACKOFF = 30  # base seconds for 429 backoff
 USER_AGENT = "Awesome-Gaussian-Splatting/1.0 (+https://github.com/Devin100086/Awesome-Gaussian-Splatting)"
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 PAPERS_JSON = DATA_DIR / "papers.json"
@@ -56,9 +58,11 @@ MAX_PAPERS = 3000                 # Cap total papers; drop oldest beyond this
 # Method figure extraction (arXiv HTML)
 # ---------------------------------------------------------------------------
 FETCH_METHOD_FIGURES = True
-FIGURE_BACKFILL = False           # True to fill missing figures for all papers
+FIGURE_BACKFILL = True           # True to fill missing figures for all papers
 FIGURE_REQUEST_DELAY = 1          # seconds between figure requests
 MAX_FIGURE_FETCH = 50             # safety cap per run
+FORCE_REFRESH_FIGURES = False     # True to re-fetch figures even if URL exists
+CLEAR_BAD_FIGURES = True          # True to remove suspect figure URLs when refresh fails
 METHOD_FIGURE_KEYWORDS = [
     "method", "architecture", "pipeline", "framework", "overview",
     "system", "approach", "model", "network",
@@ -151,8 +155,16 @@ TAG_RULES: dict[str, list[str]] = {
     ],
 }
 
-HTML_LINK_RE = re.compile(r'href="(/html/[^"]+)"[^>]*>\s*HTML', re.IGNORECASE)
+HTML_LINK_RE = re.compile(r'href="([^"]*?/html/[^"]+)"[^>]*>\s*HTML', re.IGNORECASE)
+HTML_FORMAT_RE = re.compile(r'href="([^"]+format=html[^"]*)"', re.IGNORECASE)
 YEAR_RE = re.compile(r"^(\d{4})-")
+
+IMG_SRC_ATTRS = ("src", "data-src", "data-original", "data-lazy-src")
+FIGURE_IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg")
+FIGURE_BAD_SUBSTRINGS = (
+    "overlay.png", "sprite", "favicon", "logo", "icon",
+    "mathjax", "tex", "equation", "eqn", "glyph", "font",
+)
 
 
 def http_get(url: str, params: dict | None = None) -> requests.Response:
@@ -227,10 +239,17 @@ def find_arxiv_html_url(abs_url: str) -> str | None:
     resp = http_get(abs_url)
     if resp.status_code != 200:
         return None
-    match = HTML_LINK_RE.search(resp.text)
-    if not match:
-        return None
-    return urljoin(abs_url, match.group(1))
+    html_url = extract_html_link_from_abs_page(resp.text, abs_url)
+    if html_url:
+        return html_url
+
+    # Fallback: try direct HTML URL (may redirect to latest version)
+    arxiv_id = abs_url.rstrip("/").split("/")[-1]
+    candidate = f"https://arxiv.org/html/{arxiv_id}"
+    resp2 = http_get(candidate)
+    if resp2.status_code == 200 and "text/html" in resp2.headers.get("Content-Type", ""):
+        return candidate
+    return None
 
 
 def score_figure_caption(text: str, index: int) -> float:
@@ -247,6 +266,109 @@ def score_figure_caption(text: str, index: int) -> float:
     return score
 
 
+def extract_html_link_from_abs_page(html: str, abs_url: str) -> str | None:
+    """Extract arXiv HTML link from the abstract page HTML."""
+    if BeautifulSoup is not None:
+        soup = BeautifulSoup(html, "html.parser")
+        for a in soup.find_all("a", href=True):
+            href = a.get("href", "")
+            href_l = href.lower()
+            label = " ".join(a.stripped_strings).lower()
+            if "/html/" in href_l:
+                return urljoin(abs_url, href)
+            if "format=html" in href_l:
+                return urljoin(abs_url, href)
+            if "html" in label and "html" in href_l:
+                return urljoin(abs_url, href)
+
+    for pattern in (HTML_LINK_RE, HTML_FORMAT_RE):
+        match = pattern.search(html)
+        if match:
+            return urljoin(abs_url, match.group(1))
+    return None
+
+
+def pick_image_src(img) -> str | None:
+    """Pick the best image source from common attributes."""
+    if not img:
+        return None
+    for attr in IMG_SRC_ATTRS:
+        src = img.get(attr)
+        if src:
+            return src
+    srcset = img.get("srcset") or img.get("data-srcset")
+    if srcset:
+        first = srcset.split(",")[0].strip()
+        if first:
+            return first.split(" ")[0]
+    return None
+
+
+def is_valid_figure_src(src: str) -> bool:
+    """Filter out non-figure assets (icons, overlays, etc.)."""
+    if not src:
+        return False
+    src_l = src.lower()
+    if src_l.startswith("data:"):
+        return False
+    for bad in FIGURE_BAD_SUBSTRINGS:
+        if bad in src_l:
+            return False
+    clean = src_l.split("?", 1)[0].split("#", 1)[0]
+    if any(clean.endswith(ext) for ext in FIGURE_IMAGE_EXTS):
+        return True
+    if "/fig" in src_l or "figure" in src_l:
+        return True
+    return False
+
+
+def is_suspect_figure_url(url: str) -> bool:
+    """Detect likely bad figure URLs that should be refreshed."""
+    if not url:
+        return True
+    url_l = url.lower()
+    if any(bad in url_l for bad in FIGURE_BAD_SUBSTRINGS):
+        return True
+    clean = url_l.split("?", 1)[0].split("#", 1)[0]
+    if re.search(r"/html/[^/]+\.(png|jpe?g|webp|gif|svg)$", clean):
+        return True
+    return False
+
+
+def needs_figure_refresh(paper: dict) -> bool:
+    """Decide whether to (re)fetch a method figure for a paper."""
+    if FORCE_REFRESH_FIGURES:
+        return True
+    url = paper.get("method_fig_url")
+    if not url:
+        return True
+    return is_suspect_figure_url(url)
+
+
+def absolutize_media_url(base_url: str, src: str) -> str:
+    """Resolve relative media URLs against the arXiv HTML base."""
+    if re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", src):
+        return src
+    base = base_url.rstrip("/") + "/"
+    return urljoin(base, src)
+
+
+def pick_figure_media(fig) -> tuple[str | None, object | None]:
+    """Pick a valid image source within a figure and return (src, img_el)."""
+    if not fig:
+        return None, None
+    for img in fig.find_all("img"):
+        src = pick_image_src(img)
+        if src and is_valid_figure_src(src):
+            return src, img
+    obj = fig.find("object")
+    if obj and obj.get("data"):
+        src = obj.get("data")
+        if src and is_valid_figure_src(src):
+            return src, None
+    return None, None
+
+
 def extract_method_figure(html_url: str) -> tuple[str | None, str | None]:
     """Extract a likely method figure image URL + caption from arXiv HTML."""
     if BeautifulSoup is None:
@@ -261,19 +383,23 @@ def extract_method_figure(html_url: str) -> tuple[str | None, str | None]:
     best_score = -1e9
 
     figures = soup.find_all("figure")
+    if not figures:
+        figures = soup.find_all(class_=re.compile(r"figure", re.IGNORECASE))
     for idx, fig in enumerate(figures):
-        img = fig.find("img")
-        if not img or not img.get("src"):
+        src, img = pick_figure_media(fig)
+        if not src:
             continue
         caption_el = fig.find("figcaption")
         if not caption_el:
             caption_el = fig.find(class_=re.compile("caption", re.IGNORECASE))
         caption = " ".join(caption_el.stripped_strings) if caption_el else ""
-        alt = img.get("alt", "")
+        alt = img.get("alt", "") if img else ""
+        if not caption and not alt:
+            continue
         score = score_figure_caption(f"{caption} {alt}", idx)
         if score > best_score:
             best_score = score
-            best_url = urljoin(html_url, img["src"])
+            best_url = absolutize_media_url(html_url, src)
             best_caption = caption.strip()
 
     if best_url:
@@ -310,7 +436,8 @@ def enrich_method_figure(paper: dict) -> bool:
         return False
     if not paper.get("abs_url"):
         return False
-    if paper.get("method_fig_url"):
+    existing_url = paper.get("method_fig_url")
+    if existing_url and not FORCE_REFRESH_FIGURES and not is_suspect_figure_url(existing_url):
         return False
 
     html_url = find_arxiv_html_url(paper["abs_url"])
@@ -319,6 +446,10 @@ def enrich_method_figure(paper: dict) -> bool:
 
     fig_url, caption = extract_method_figure(html_url)
     if not fig_url:
+        if existing_url and is_suspect_figure_url(existing_url) and CLEAR_BAD_FIGURES:
+            paper.pop("method_fig_url", None)
+            paper.pop("method_fig_source", None)
+            paper.pop("method_fig_caption", None)
         return False
 
     paper["method_fig_url"] = fig_url
@@ -336,9 +467,9 @@ def enrich_method_figures(papers: list[dict], target_ids: set[str]) -> None:
         print("  bs4 not installed; skipping method figure extraction.")
         return
 
-    candidates = [p for p in papers if p.get("id") in target_ids and not p.get("method_fig_url")]
+    candidates = [p for p in papers if p.get("id") in target_ids and needs_figure_refresh(p)]
     if FIGURE_BACKFILL:
-        candidates = [p for p in papers if not p.get("method_fig_url")]
+        candidates = [p for p in papers if needs_figure_refresh(p)]
 
     if MAX_FIGURE_FETCH:
         candidates = candidates[:MAX_FIGURE_FETCH]
@@ -367,6 +498,7 @@ def fetch_arxiv_papers() -> list[dict]:
     """Fetch papers from arXiv API with pagination."""
     all_papers: list[dict] = []
     start = 0
+    rate_limit_hits = 0
 
     while start < MAX_TOTAL_RESULTS:
         params = {
@@ -379,6 +511,19 @@ def fetch_arxiv_papers() -> list[dict]:
         print(f"  Fetching results {start}–{start + MAX_RESULTS_PER_PAGE} ...")
 
         resp = http_get(ARXIV_API_URL, params=params)
+        if resp.status_code == 429:
+            rate_limit_hits += 1
+            if rate_limit_hits > MAX_429_RETRIES:
+                resp.raise_for_status()
+            retry_after = resp.headers.get("Retry-After", "").strip()
+            if retry_after.isdigit():
+                wait = float(retry_after)
+            else:
+                wait = min(RATE_LIMIT_BACKOFF * rate_limit_hits, 300)
+            print(f"  HTTP 429 rate limit. Waiting {wait:.0f}s before retry...")
+            time.sleep(wait)
+            continue
+        rate_limit_hits = 0
         resp.raise_for_status()
         feed = feedparser.parse(resp.text)
 
