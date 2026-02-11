@@ -164,12 +164,11 @@ a:hover {
   width: 32px;
   height: 32px;
   background: var(--accent);
-  color: white;
+  color: #ffffff;
   font-size: 0.85rem;
   font-weight: 800;
   border-radius: 8px;
   letter-spacing: -0.02em;
-  color: var(--accent);
 }
 
 .navbar-actions {
