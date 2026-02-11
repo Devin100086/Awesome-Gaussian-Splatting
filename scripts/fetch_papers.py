@@ -564,11 +564,24 @@ def fetch_arxiv_papers() -> list[dict]:
 
             categories = [t.term for t in entry.get("tags", [])]
             authors = [a.name for a in entry.get("authors", [])]
+            affiliations: list[str] = []
+            for author in entry.get("authors", []):
+                if isinstance(author, dict):
+                    aff = author.get("arxiv_affiliation") or author.get("affiliation")
+                else:
+                    aff = getattr(author, "arxiv_affiliation", None) or getattr(author, "affiliation", None)
+                if aff:
+                    cleaned = re.sub(r"\s+", " ", str(aff)).strip()
+                    if cleaned:
+                        affiliations.append(cleaned)
+            # De-duplicate while preserving order
+            affiliations = list(dict.fromkeys(affiliations))
 
             paper = {
                 "id": arxiv_id_base,
                 "title": title,
                 "authors": authors,
+                "affiliations": affiliations,
                 "abstract": abstract,
                 "published": entry.published,
                 "updated": entry.updated,

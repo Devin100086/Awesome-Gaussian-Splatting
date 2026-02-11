@@ -288,10 +288,13 @@
 
     const authors = (paper.authors || []).join(", ");
     const categories = (paper.categories || []).join(", ");
+    const affiliations = (paper.affiliations || []).filter(Boolean);
+    const affiliationsStr = affiliations.join("; ");
 
     $("#modalTitle").textContent = paper.title;
     $("#modalMeta").innerHTML = `
       <div><strong>Authors:</strong> ${escapeHTML(authors)}</div>
+      ${affiliationsStr ? `<div><strong>Affiliations:</strong> ${escapeHTML(affiliationsStr)}</div>` : ""}
       <div><strong>Published:</strong> ${dateStr}${updatedStr && updatedStr !== dateStr ? ` ¡¤ Updated: ${updatedStr}` : ""}</div>
       <div><strong>Categories:</strong> ${escapeHTML(categories)}</div>
       <div><strong>ID:</strong> ${escapeHTML(paper.id || "")}</div>
