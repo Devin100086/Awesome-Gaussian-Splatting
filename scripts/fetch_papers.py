@@ -165,6 +165,10 @@ FIGURE_BAD_SUBSTRINGS = (
     "overlay.png", "sprite", "favicon", "logo", "icon",
     "mathjax", "tex", "equation", "eqn", "glyph", "font",
 )
+ARXIV_DUPLICATE_HTML_SEGMENT_RE = re.compile(
+    r"^(https://arxiv\.org/html/([^/?#]+)/)\2/(.+)$",
+    re.IGNORECASE,
+)
 
 
 def http_get(url: str, params: dict | None = None) -> requests.Response:
@@ -349,13 +353,26 @@ def needs_figure_refresh(paper: dict) -> bool:
     return is_suspect_figure_url(url)
 
 
+def normalize_method_fig_url(url: str | None) -> str | None:
+    """Fix known malformed arXiv HTML image URLs."""
+    if not isinstance(url, str) or not url:
+        return url
+    match = ARXIV_DUPLICATE_HTML_SEGMENT_RE.match(url)
+    if match:
+        return f"{match.group(1)}{match.group(3)}"
+    return url
+
+
 def absolutize_media_url(base_url: str, src: str) -> str:
     """Resolve relative media URLs against the arXiv HTML base."""
     if re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", src):
-        return src
+        return normalize_method_fig_url(src) or src
     parts = urlsplit(base_url)
-    base = urlunsplit((parts.scheme, parts.netloc, parts.path.rstrip("/") + "/", "", ""))
-    return urljoin(base, src)
+    # arXiv HTML pages are served as /html/<id> (no trailing slash). Keeping this
+    # form avoids accidentally producing /html/<id>/<id>/... URLs.
+    base = urlunsplit((parts.scheme, parts.netloc, parts.path.rstrip("/"), "", ""))
+    resolved = urljoin(base, src)
+    return normalize_method_fig_url(resolved) or resolved
 
 
 def pick_figure_media(fig) -> tuple[str | None, object | None]:
@@ -618,7 +635,16 @@ def load_existing_papers() -> dict:
     """Load existing papers.json data."""
     if PAPERS_JSON.exists():
         with open(PAPERS_JSON, "r", encoding="utf-8") as f:
-            return json.load(f)
+            data = json.load(f)
+        fixed_count = 0
+        for paper in data.get("papers", []):
+            fixed = normalize_method_fig_url(paper.get("method_fig_url"))
+            if fixed and fixed != paper.get("method_fig_url"):
+                paper["method_fig_url"] = fixed
+                fixed_count += 1
+        if fixed_count:
+            print(f"  Normalized {fixed_count} malformed method figure URLs.")
+        return data
     return {"last_updated": "", "total_count": 0, "papers": []}
 
 

@@ -247,11 +247,12 @@
     }
 
     const safeTitle = escapeHTML(paper.title);
+    const figureUrl = normalizeMethodFigureUrl(paper.method_fig_url);
     const todayBadgeHTML = isToday
       ? `<div class="today-badge">Today</div>`
       : "";
-    const figureHTML = paper.method_fig_url
-      ? `<div class="paper-figure"><img src="${paper.method_fig_url}" alt="Method figure for ${safeTitle}" loading="lazy" /></div>`
+    const figureHTML = figureUrl
+      ? `<div class="paper-figure"><img src="${figureUrl}" alt="Method figure for ${safeTitle}" loading="lazy" /></div>`
       : "";
 
     card.innerHTML = `
@@ -307,9 +308,10 @@
     const figureSection = $("#modalFigureSection");
     const figureImg = $("#modalFigure");
     const figureCaption = $("#modalFigureCaption");
-    if (paper.method_fig_url) {
+    const figureUrl = normalizeMethodFigureUrl(paper.method_fig_url);
+    if (figureUrl) {
       figureSection.style.display = "block";
-      figureImg.src = paper.method_fig_url;
+      figureImg.src = figureUrl;
       figureImg.alt = `Method figure for ${paper.title}`;
       if (paper.method_fig_caption) {
         figureCaption.textContent = paper.method_fig_caption;
@@ -499,6 +501,14 @@
     const div = document.createElement("div");
     div.textContent = str;
     return div.innerHTML;
+  }
+
+  function normalizeMethodFigureUrl(url) {
+    if (typeof url !== "string" || !url) return "";
+    return url.replace(
+      /^(https:\/\/arxiv\.org\/html\/([^/?#]+)\/)\2\//i,
+      "$1"
+    );
   }
 
   // Expose resetFilters to global for inline onclick
