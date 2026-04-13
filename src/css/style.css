@@ -136,8 +136,9 @@ a:hover {
 }
 
 .navbar-inner {
-  max-width: 1440px;
-  margin: 0 auto;
+  width: 100%;
+  max-width: none;
+  margin: 0;
   padding: 0 24px;
   height: 100%;
   display: flex;
@@ -287,8 +288,9 @@ a:hover {
 /* ---------- Layout ---------- */
 .layout {
   display: flex;
-  max-width: 1440px;
-  margin: 0 auto;
+  width: 100%;
+  max-width: none;
+  margin: 0;
   padding-top: var(--navbar-height);
   min-height: 100vh;
 }
